@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>Item Detail - Campus Lost & Found</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-button" onclick="history.back()" aria-label="Back">←</button>
+      <div class="topbar-title">Detail</div>
+    </div>
+
+    <div class="topbar-actions">
+      <a class="secondary-button" href="index.html">Home</a>
+
+      <div class="user-menu">
+        <button class="user-button" id="userBtn" aria-haspopup="true" aria-expanded="false">
+          <span class="user-avatar">👤</span>
+          <span class="user-name" id="userName">User</span>
+        </button>
+
+        <div class="user-dropdown" id="userMenu" role="menu">
+          <button class="user-item" type="button">Profile</button>
+          <button class="user-item" type="button">My Posts</button>
+          <hr />
+          <button class="user-item danger" type="button">Logout</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="detail-layout">
+      <div id="itemImage" class="detail-image placeholder"></div>
+
+      <div class="detail-info card pad">
+        <div id="itemBadge" class="item-badge" style="width: fit-content;">Type</div>
+        <h1 id="itemTitle">Title</h1>
+        <p id="itemMeta" class="item-meta">Meta</p>
+        <p id="itemDescription" class="item-meta">Description</p>
+      </div>
+    </section>
+
+    <section class="card pad">
+      <h2 class="section-title">Approximate Location</h2>
+      <div class="map-wrap">
+        <div id="map"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // User menu (shared)
+    const userBtn = document.getElementById("userBtn");
+    const userMenu = document.getElementById("userMenu");
+    if (userBtn && userMenu) {
+      userBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = userMenu.classList.toggle("open");
+        userBtn.setAttribute("aria-expanded", String(open));
+      });
+      document.addEventListener("click", () => {
+        userMenu.classList.remove("open");
+        userBtn.setAttribute("aria-expanded", "false");
+      });
+    }
+  </script>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="js/post-detail.js"></script>
+</body>
+</html>
