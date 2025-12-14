@@ -1,79 +1,191 @@
 <!DOCTYPE html>
-<html lang="th">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Item Detail - Campus Lost & Found</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Post Details - ModFinder+</title>
 
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/layout.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    .detail-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--s-3);
+      flex-wrap: wrap;
+      margin-bottom: var(--s-3);
+    }
+
+    .detail-title {
+      font-weight: 1000;
+      font-size: 1.35rem;
+      line-height: 1.2;
+    }
+
+    .meta-list {
+      display: grid;
+      gap: var(--s-2);
+      margin-top: var(--s-3);
+      font-weight: 900;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: var(--s-3);
+      align-items: baseline;
+    }
+    @media (max-width: 520px) {
+      .meta-row { grid-template-columns: 1fr; }
+    }
+
+    .meta-key { color: var(--text-muted); font-weight: 950; }
+    .meta-val { color: var(--text); font-weight: 950; overflow-wrap: anywhere; }
+
+    .priority-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: var(--r-pill);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-weight: 950;
+      box-shadow: var(--shadow-1);
+    }
+
+    .map-card {
+      margin-top: var(--s-4);
+    }
+
+    #map {
+      width: 100%;
+      height: 320px;
+    }
+
+    .map-wrap {
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-1);
+      margin-top: var(--s-3);
+    }
+
+    .coords-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--s-2);
+      flex-wrap: wrap;
+      margin-top: var(--s-2);
+    }
+
+    .coords-text {
+      font-weight: 950;
+      color: var(--text-muted);
+    }
+  </style>
 </head>
 
 <body>
+
   <header class="topbar">
     <div class="topbar-left">
-      <button class="icon-button" onclick="history.back()" aria-label="Back">←</button>
-      <div class="topbar-title">Detail</div>
+      <button class="icon-button" aria-label="Menu">≡</button>
+
+      <a class="brand-link" href="index.html" aria-label="ModFinder+ Home">
+        <img
+          class="brand-logo"
+          src="https://img5.pic.in.th/file/secure-sv1/CPE101_I16_LOST__FOUND.png"
+          alt="ModFinder+"
+        />
+      </a>
     </div>
 
     <div class="topbar-actions">
-      <a class="secondary-button" href="index.html">Home</a>
+      <a class="primary-button" href="post-form.html">Post</a>
 
       <div class="user-menu">
         <button class="user-button" id="userBtn" aria-haspopup="true" aria-expanded="false">
           <span class="user-avatar">👤</span>
-          <span class="user-name" id="userName">User</span>
+          <span class="user-name" id="userNameTop">User</span>
         </button>
 
         <div class="user-dropdown" id="userMenu" role="menu">
-          <button class="user-item" type="button">Profile</button>
-          <button class="user-item" type="button">My Posts</button>
+          <button class="user-item" type="button" data-action="profile">Profile</button>
+          <button class="user-item" type="button" data-action="my-posts">My Posts</button>
           <hr />
-          <button class="user-item danger" type="button">Logout</button>
+          <button class="user-item danger" type="button" data-action="logout">Logout</button>
         </div>
       </div>
     </div>
   </header>
 
   <main class="page">
-    <section class="detail-layout">
-      <div id="itemImage" class="detail-image placeholder"></div>
 
-      <div class="detail-info card pad">
-        <div id="itemBadge" class="item-badge" style="width: fit-content;">Type</div>
-        <h1 id="itemTitle">Title</h1>
-        <p id="itemMeta" class="item-meta">Meta</p>
-        <p id="itemDescription" class="item-meta">Description</p>
+    <section class="detail-layout">
+      <div>
+        <!-- image -->
+        <div id="itemImage" class="detail-image placeholder"></div>
+      </div>
+
+      <div class="card pad">
+        <div class="detail-header">
+          <span id="itemBadge" class="item-badge lost">LOST</span>
+          <span id="priorityPill" class="priority-pill">Priority</span>
+        </div>
+
+        <div class="detail-title" id="itemTitle">Loading...</div>
+
+        <!-- metaEl is hidden by JS but must exist -->
+        <div id="itemMeta" class="item-meta" style="display:none;"></div>
+
+        <div class="meta-list" aria-label="Post info">
+          <div class="meta-row">
+            <div class="meta-key">Posted by</div>
+            <div class="meta-val" id="postedByVal">-</div>
+          </div>
+
+          <div class="meta-row">
+            <div class="meta-key">Post time</div>
+            <div class="meta-val" id="postTimeVal">-</div>
+          </div>
+
+          <div class="meta-row">
+            <div class="meta-key">Contact</div>
+            <div class="meta-val" id="contactVal">-</div>
+          </div>
+        </div>
       </div>
     </section>
 
-    <section class="card pad">
-      <h2 class="section-title">Approximate Location</h2>
+    <section class="card pad" style="margin-bottom: var(--s-4);">
+      <h2 class="section-title">Description</h2>
+      <div id="itemDescription" style="font-weight:900; color: var(--text); line-height: 1.55;"></div>
+    </section>
+
+    <section class="card pad map-card">
+      <h2 class="section-title">Location</h2>
+
+      <div class="coords-row">
+        <div class="coords-text">Coordinates: <span id="coordsText">-</span></div>
+        <button class="secondary-button" type="button" id="openMapsBtn">Open in Google Maps</button>
+      </div>
+
       <div class="map-wrap">
         <div id="map"></div>
       </div>
     </section>
+
   </main>
 
-  <script>
-    // User menu (shared)
-    const userBtn = document.getElementById("userBtn");
-    const userMenu = document.getElementById("userMenu");
-    if (userBtn && userMenu) {
-      userBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const open = userMenu.classList.toggle("open");
-        userBtn.setAttribute("aria-expanded", String(open));
-      });
-      document.addEventListener("click", () => {
-        userMenu.classList.remove("open");
-        userBtn.setAttribute("aria-expanded", "false");
-      });
-    }
-  </script>
-
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script type="module" src="js/auth-guard.js"></script>
+  <script type="module" src="js/ui.js"></script>
   <script type="module" src="js/post-detail.js"></script>
 </body>
 </html>
