@@ -3,16 +3,8 @@ import {
   collection,
   getDocs,
   query,
-  orderBy,
+  orderBy
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-
-// ✅ optional: if firebase.js exports auth we can use it
-// If not present, the try/catch will fallback safely.
-let auth = null;
-try {
-  const mod = await import("./firebase.js");
-  auth = mod.auth || null;
-} catch (_) {}
 
 /* ---------------- DOM ---------------- */
 const grid = document.getElementById("itemGrid");
@@ -21,297 +13,136 @@ const filterButtons = document.querySelectorAll(".chip");
 const searchInput = document.getElementById("searchInput");
 const clearSearchBtn = document.getElementById("clearSearch");
 
-const welcomeNameEl = document.getElementById("welcomeName");
-const userNameTopEl = document.getElementById("userNameTop");
+/* ✅ Sort icon menu */
+const sortBtn = document.getElementById("sortBtn");
+const sortMenu = document.getElementById("sortMenu");
 
+const sortHintEl = document.getElementById("sortHint");
+
+const sortByButtons = Array.from(document.querySelectorAll("[data-sortby]"));
+const sortDirButtons = Array.from(document.querySelectorAll("[data-sortdir]"));
+
+const orderDescLabel = document.getElementById("orderDescLabel");
+const orderAscLabel = document.getElementById("orderAscLabel");
+
+/* ---------------- STATE ---------------- */
+/* ✅ default: priority high -> low */
 let activeFilter = "all";
 let activeQuery = "";
-let cachedPosts = []; // { id, data }
+
+let sortBy = "priority"; // priority | time
+let sortDir = "desc";    // desc | asc
+
+let cachedPosts = [];
 
 /* ---------------- helpers ---------------- */
 
-function getCreatedAtMs(post) {
-  if (post?.createdAt?.seconds) return post.createdAt.seconds * 1000;
-  if (typeof post?.createdAt?.toMillis === "function") return post.createdAt.toMillis();
-  return 0;
-}
-
-function timeAgo(timestamp) {
-  const now = Date.now();
-  const diff = now - timestamp;
-
-  if (diff < 60000) return Math.floor(diff / 1000) + " secs ago";
-  if (diff < 3600000) return Math.floor(diff / 60000) + " mins ago";
-  if (diff < 86400000) return Math.floor(diff / 3600000) + " hrs ago";
-  return Math.floor(diff / 86400000) + " days ago";
-}
-
 function normalizeText(s) {
   return String(s || "").toLowerCase().trim();
 }
 
 function matchesSearch(post, q) {
   if (!q) return true;
-
-  const title = normalizeText(post.title);
-  const desc = normalizeText(post.description);
-  const loc = normalizeText(post.location);
-
-  return title.includes(q) || desc.includes(q) || loc.includes(q);
+  return (
+    normalizeText(post.title).includes(q) ||
+    normalizeText(post.description).includes(q) ||
+    normalizeText(post.location).includes(q)
+  );
 }
 
 function renderEmpty(msg) {
-  grid.innerHTML = "";
-  const empty = document.createElement("div");
-  empty.className = "card pad";
-  empty.textContent = msg;
-  grid.appendChild(empty);
+  if (!grid) return;
+  grid.innerHTML = `<div class="card pad">${msg}</div>`;
 }
 
-function renderPosts(list) {
-  grid.innerHTML = "";
-
-  if (list.length === 0) {
-    renderEmpty("No posts found.");
-    return;
-  }
-
-  for (const item of list) {
-  const { id, data: post } = item;
-  const type = post.type || "lost";
-
-  const card = document.createElement("div");
-  card.className = "item-card";
-  card.addEventListener("click", () => {
-    window.location.href = `post-detail.html?id=${id}`;
-  });
-
-  const img = document.createElement("div");
-  img.className = "item-image";
-  if (post.imageUrl) {
-    img.style.backgroundImage = `url('${post.imageUrl}')`;
-  } else {
-    img.classList.add("placeholder");
-  }
-
-  const content = document.createElement("div");
-  content.className = "item-content";
-
-  const badge = document.createElement("span");
-  badge.className = `item-badge ${type}`;
-  badge.textContent = type === "lost" ? "Lost" : "Found";
-
-  const title = document.createElement("div");
-  title.className = "item-title";
-  title.textContent = post.title || "Untitled";
-
-  // 🔥 YOUR AI PRIORITY LOGIC (SAFE)
-  const score = post.importanceScore ?? 0;
-  const priority = document.createElement("div");
-  priority.className = "priority-wrapper";
-
-  if (score >= 0.64) {
-    priority.innerHTML = `<span class="priority-badge high">🔥 High Priority</span>`;
-  } else if (score >= 0.3) {
-    priority.innerHTML = `<span class="priority-badge med">⚠️ Medium Priority</span>`;
-  } else {
-    priority.innerHTML = `<span class="priority-badge low">Low Priority</span>`;
-  }
-
-  const meta = document.createElement("div");
-  meta.className = "item-meta";
-  meta.textContent = post.location || "";
-
-  content.appendChild(badge);
-  content.appendChild(title);
-  content.appendChild(priority); // ✅ here
-  content.appendChild(meta);
-
-  card.appendChild(img);
-  card.appendChild(content);
-
-  grid.appendChild(card);
-}
-}
-
-
-function applyFilterAndSearch() {
-  const q = normalizeText(activeQuery);
-
-  const filtered = cachedPosts.filter(({ data }) => {
-    const type = data.type || "lost";
-    const typeOk = activeFilter === "all" ? true : type === activeFilter;
-    const searchOk = matchesSearch(data, q);
-    return typeOk && searchOk;
-  });
-
-  renderPosts(filtered);
-}
-
-/* ---------------- user name ---------------- */
-
-function pickNameFromEmail(email) {
-  if (!email) return "";
-  const at = String(email).indexOf("@");
-  return at > 0 ? email.slice(0, at) : email;
-}
-
-function setUserName(name) {
-  const safe = (name && String(name).trim()) ? String(name).trim() : "User";
-  if (welcomeNameEl) welcomeNameEl.textContent = safe;
-  if (userNameTopEl) userNameTopEl.textContent = safe;
-}
-
-function loadUserName() {
-  // 1) Firebase Auth (if available)
-  try {
-    const u = auth?.currentUser;
-    if (u) {
-      setUserName(u.displayName || pickNameFromEmail(u.email) || "User");
-      return;
-    }
-  } catch (_) {}
-
-  // 2) localStorage fallback (ให้คุณตั้งค่าไว้เองได้)
-  const ls = localStorage.getItem("userName");
-  if (ls) {
-    setUserName(ls);
-    return;
-  }
-
-  // 3) default
-  setUserName("User");
-}
-
-/* ---------------- init data ---------------- */
-
-function applyAIPriority(posts) {
-  return posts.sort((a, b) => {
-    const scoreA = a.data.importanceScore ?? 0;
-    const scoreB = b.data.importanceScore ?? 0;
-    return scoreB - scoreA;
-  });
-}
-
-async function loadPostsOnce() {
-  const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
-  const snapshot = await getDocs(q);
-
-  cachedPosts = snapshot.docs.map((d) => ({
-    id: d.id,
-    data: d.data(),
-  }));
-  cachedPosts = applyAIPriority(cachedPosts);
-
-  applyFilterAndSearch();
-}
-
-/* ---------------- events ---------------- */
-
-filterButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    filterButtons.forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-
-    activeFilter = btn.dataset.filter || "all";
-    applyFilterAndSearch();
-  });
-});
-
-// debounce search
-let t = null;
-if (searchInput) {
-  searchInput.addEventListener("input", (e) => {
-    const val = e.target.value || "";
-    clearTimeout(t);
-    t = setTimeout(() => {
-      activeQuery = val;
-      applyFilterAndSearch();
-    }, 120);
-  });
-}
-
-if (clearSearchBtn && searchInput) {
-  clearSearchBtn.addEventListener("click", () => {
-    searchInput.value = "";
-    activeQuery = "";
-    applyFilterAndSearch();
-    searchInput.focus();
-  });
-}
-
-/* ---------------- start ---------------- */
-loadUserName();
-loadPostsOnce().catch((err) => {
-  console.error(err);
-  renderEmpty("Failed to load posts.");
-
-});
-/*import { db } from "./firebase.js";
-import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-
-// ✅ optional auth import (safe fallback)
-let auth = null;
-try {
-  const mod = await import("./firebase.js");
-  auth = mod.auth || null;
-} catch (_) {}
-
-// ---------------- DOM ---------------- 
-const grid = document.getElementById("itemGrid");
-const filterButtons = document.querySelectorAll(".chip");
-const searchInput = document.getElementById("searchInput");
-const clearSearchBtn = document.getElementById("clearSearch");
-const welcomeNameEl = document.getElementById("welcomeName");
-const userNameTopEl = document.getElementById("userNameTop");
-
-let activeFilter = "all";
-let activeQuery = "";
-let cachedPosts = []; // { id, data }
-
-// ---------------- helpers ---------------- 
-function getCreatedAtMs(post) {
+function getPostTimeMs(post) {
   if (post?.createdAt?.seconds) return post.createdAt.seconds * 1000;
-  if (typeof post?.createdAt?.toMillis === "function")
-    return post.createdAt.toMillis();
+  if (typeof post?.createdAtClientEpochMs === "number") return post.createdAtClientEpochMs;
+  if (typeof post?.createdAtClientISO === "string") {
+    const t = Date.parse(post.createdAtClientISO);
+    if (!Number.isNaN(t)) return t;
+  }
   return 0;
 }
 
-function timeAgo(timestamp) {
-  const diff = Date.now() - timestamp;
-  if (diff < 60000) return Math.floor(diff / 1000) + " secs ago";
-  if (diff < 3600000) return Math.floor(diff / 60000) + " mins ago";
-  if (diff < 86400000) return Math.floor(diff / 3600000) + " hrs ago";
-  return Math.floor(diff / 86400000) + " days ago";
+function getPriorityScore(post) {
+  const s = post?.importanceScore;
+  if (typeof s === "number") return s;
+  return 0;
 }
 
-function normalizeText(s) {
-  return String(s || "").toLowerCase().trim();
+function updateOrderLabels() {
+  if (!orderDescLabel || !orderAscLabel) return;
+
+  if (sortBy === "time") {
+    orderDescLabel.textContent = "Newest → Oldest";
+    orderAscLabel.textContent = "Oldest → Newest";
+    if (sortHintEl) sortHintEl.textContent = "Post time: newest → oldest";
+  } else {
+    orderDescLabel.textContent = "High → Low";
+    orderAscLabel.textContent = "Low → High";
+    if (sortHintEl) sortHintEl.textContent = "Priority: high → low";
+  }
 }
 
-function matchesSearch(post, q) {
-  if (!q) return true;
-  const title = normalizeText(post.title);
-  const desc = normalizeText(post.description);
-  const loc = normalizeText(post.location);
-  return title.includes(q) || desc.includes(q) || loc.includes(q);
+function comparePosts(a, b) {
+  const A = a.data;
+  const B = b.data;
+
+  const dir = sortDir === "asc" ? 1 : -1;
+
+  if (sortBy === "time") {
+    const ta = getPostTimeMs(A);
+    const tb = getPostTimeMs(B);
+    if (ta !== tb) return (ta - tb) * dir;
+
+    // tie-breaker: priority
+    const pa = getPriorityScore(A);
+    const pb = getPriorityScore(B);
+    if (pa !== pb) return (pa - pb) * -1;
+
+    return String(a.id).localeCompare(String(b.id));
+  }
+
+  // sortBy === "priority"
+  const pa = getPriorityScore(A);
+  const pb = getPriorityScore(B);
+  if (pa !== pb) return (pa - pb) * dir;
+
+  // tie-breaker: newest first when priority ties
+  const ta = getPostTimeMs(A);
+  const tb = getPostTimeMs(B);
+  if (ta !== tb) return (ta - tb) * -1;
+
+  return String(a.id).localeCompare(String(b.id));
 }
 
-// ---------------- render ---------------- 
-function renderEmpty(msg) {
-  grid.innerHTML = "";
-  const empty = document.createElement("div");
-  empty.className = "card pad";
-  empty.textContent = msg;
-  grid.appendChild(empty);
+/* ---------------- UI sync (✓ selected) ---------------- */
+
+function syncSortUI() {
+  // sortBy
+  sortByButtons.forEach((btn) => {
+    const v = btn.dataset.sortby;
+    const selected = v === sortBy;
+    btn.classList.toggle("selected", selected);
+    btn.setAttribute("aria-checked", String(selected));
+  });
+
+  // sortDir
+  sortDirButtons.forEach((btn) => {
+    const v = btn.dataset.sortdir;
+    const selected = v === sortDir;
+    btn.classList.toggle("selected", selected);
+    btn.setAttribute("aria-checked", String(selected));
+  });
+
+  updateOrderLabels();
 }
+
+/* ---------------- render ---------------- */
 
 function renderPosts(list) {
+  if (!grid) return;
   grid.innerHTML = "";
 
   if (list.length === 0) {
@@ -321,15 +152,12 @@ function renderPosts(list) {
 
   for (const item of list) {
     const { id, data: post } = item;
-    const type = post.type || "lost";
-    const createdAtMs = getCreatedAtMs(post);
-    const createdTime = createdAtMs ? timeAgo(createdAtMs) : "";
 
     const card = document.createElement("div");
     card.className = "item-card";
-    card.addEventListener("click", () => {
+    card.onclick = () => {
       window.location.href = `post-detail.html?id=${id}`;
-    });
+    };
 
     const img = document.createElement("div");
     img.className = "item-image";
@@ -339,135 +167,139 @@ function renderPosts(list) {
       img.classList.add("placeholder");
     }
 
-    const content = document.createElement("div");
-    content.className = "item-content";
-
     const badge = document.createElement("span");
-    badge.className = `item-badge ${type}`;
-    badge.textContent = type === "lost" ? "Lost" : "Found";
+    badge.className = `item-badge ${post.type || "lost"}`;
+    badge.textContent = (post.type || "lost").toUpperCase();
 
     const title = document.createElement("div");
     title.className = "item-title";
     title.textContent = post.title || "Untitled";
 
+    const score = post.importanceScore ?? 0;
+    const priority = document.createElement("div");
+    priority.className = "priority-wrapper";
+    if (score >= 0.64) priority.textContent = "🔥 High Priority";
+    else if (score >= 0.3) priority.textContent = "⚠️ Medium Priority";
+    else priority.textContent = "Low Priority";
+
     const meta = document.createElement("div");
     meta.className = "item-meta";
-    meta.textContent = `${post.location || ""}${
-      createdTime ? " • " + createdTime : ""
-    }`;
+    meta.textContent = post.location || "";
 
-    content.appendChild(badge);
-    content.appendChild(title);
-    content.appendChild(meta);
-
-    card.appendChild(img);
-    card.appendChild(content);
+    card.append(img, badge, title, priority, meta);
     grid.appendChild(card);
   }
 }
 
-function applyFilterAndSearch() {
+/* ---------------- filter + search + sort ---------------- */
+
+function applyFilterSearchSort() {
   const q = normalizeText(activeQuery);
 
   const filtered = cachedPosts.filter(({ data }) => {
-    const type = data.type || "lost";
-    const typeOk =
-      activeFilter === "all" ? true : type === activeFilter;
-    const searchOk = matchesSearch(data, q);
-    return typeOk && searchOk;
+    const typeOk = activeFilter === "all" || data.type === activeFilter;
+    return typeOk && matchesSearch(data, q);
   });
 
+  filtered.sort(comparePosts);
   renderPosts(filtered);
 }
 
-// ---------------- user name ---------------- 
-function pickNameFromEmail(email) {
-  if (!email) return "";
-  const at = email.indexOf("@");
-  return at > 0 ? email.slice(0, at) : email;
-}
+/* ---------------- data ---------------- */
 
-function setUserName(name) {
-  const safe = name?.trim() || "User";
-  if (welcomeNameEl) welcomeNameEl.textContent = safe;
-  if (userNameTopEl) userNameTopEl.textContent = safe;
-}
-
-function loadUserName() {
-  // 1) Firebase Auth
-  try {
-    const u = auth?.currentUser;
-    if (u) {
-      setUserName(
-        u.displayName || pickNameFromEmail(u.email)
-      );
-      return;
-    }
-  } catch (_) {}
-
-  // 2) localStorage fallback
-  const ls = localStorage.getItem("userName");
-  if (ls) {
-    setUserName(ls);
-    return;
-  }
-
-  // 3) default
-  setUserName("User");
-}
-
-// ---------------- data ---------------- 
 async function loadPostsOnce() {
-  const q = query(
-    collection(db, "posts"),
-    orderBy("createdAt", "desc")
-  );
-  const snapshot = await getDocs(q);
-  cachedPosts = snapshot.docs.map((d) => ({
+  const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
+  const snap = await getDocs(q);
+
+  cachedPosts = snap.docs.map((d) => ({
     id: d.id,
     data: d.data(),
   }));
-  applyFilterAndSearch();
+
+  applyFilterSearchSort();
 }
 
-// ---------------- events ---------------- 
+/* ---------------- events ---------------- */
+
 filterButtons.forEach((btn) => {
-  btn.addEventListener("click", () => {
-    filterButtons.forEach((b) =>
-      b.classList.remove("active")
-    );
+  btn.onclick = () => {
+    filterButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    activeFilter = btn.dataset.filter || "all";
-    applyFilterAndSearch();
+    activeFilter = btn.dataset.filter;
+    applyFilterSearchSort();
+  };
+});
+
+let t;
+if (searchInput) {
+  searchInput.oninput = (e) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      activeQuery = e.target.value;
+      applyFilterSearchSort();
+    }, 120);
+  };
+}
+
+if (clearSearchBtn) {
+  clearSearchBtn.onclick = () => {
+    if (searchInput) searchInput.value = "";
+    activeQuery = "";
+    applyFilterSearchSort();
+  };
+}
+
+/* ✅ Sort dropdown open/close */
+function closeSortMenu() {
+  if (!sortMenu || !sortBtn) return;
+  sortMenu.classList.remove("open");
+  sortBtn.setAttribute("aria-expanded", "false");
+}
+
+function toggleSortMenu() {
+  if (!sortMenu || !sortBtn) return;
+  const open = sortMenu.classList.toggle("open");
+  sortBtn.setAttribute("aria-expanded", String(open));
+}
+
+if (sortBtn && sortMenu) {
+  sortBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleSortMenu();
+  });
+
+  sortMenu.addEventListener("click", (e) => e.stopPropagation());
+
+  document.addEventListener("click", () => closeSortMenu());
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSortMenu();
+  });
+}
+
+/* ✅ Clickable color options */
+sortByButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const v = btn.dataset.sortby || "priority";
+    sortBy = v;
+
+    // keep current sortDir as-is, just update labels + UI
+    syncSortUI();
+    applyFilterSearchSort();
   });
 });
 
-// debounce search
-let t = null;
-if (searchInput) {
-  searchInput.addEventListener("input", (e) => {
-    clearTimeout(t);
-    t = setTimeout(() => {
-      activeQuery = e.target.value || "";
-      applyFilterAndSearch();
-    }, 120);
+sortDirButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const v = btn.dataset.sortdir || "desc";
+    sortDir = v;
+
+    syncSortUI();
+    applyFilterSearchSort();
   });
-}
+});
 
-if (clearSearchBtn && searchInput) {
-  clearSearchBtn.addEventListener("click", () => {
-    searchInput.value = "";
-    activeQuery = "";
-    applyFilterAndSearch();
-    searchInput.focus();
-  });
-}
+/* init UI */
+syncSortUI();
 
-// ---------------- start ---------------- 
-loadUserName();
-loadPostsOnce().catch((err) => {
-  console.error(err);
-  renderEmpty("Failed to load posts.");
-});*/
-
-
+/* ---------------- start ---------------- */
+loadPostsOnce().catch(() => renderEmpty("Failed to load posts."));
